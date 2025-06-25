@@ -122,3 +122,8 @@ async def test_env():
         "password_loaded": CAPITAL_PASSWORD is not None
     }
 
+@app.get("/")
+def root():
+    return {"message": "Botas veikia!"}
+
+
