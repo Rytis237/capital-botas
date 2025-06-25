@@ -98,6 +98,14 @@ async def webhook(request: Request):
         tp = float(data["tp"])
         qty = float(data["qty"])
 
+        @app.get("/test-env")
+async def test_env():
+    return {
+        "api_key": CAPITAL_API_KEY,
+        "login": CAPITAL_LOGIN,
+        "password_present": bool(CAPITAL_PASSWORD)
+    }
+
         order_resp = await place_order(action, symbol, qty, sl, tp)
         return {"status": "success", "order": order_resp}
     except Exception as e:
