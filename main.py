@@ -5,7 +5,7 @@ import os
 app = FastAPI()
 
 CAPITAL_API_BASE = "https://demo-api-capital.backend-capital.com"
-CAPITAL_API_KEY = os.getenv("CAPITAL_CLIENT_ID")        # tavo API key Capital.com platformoje
+CAPITAL_API_KEY = os.getenv("CAPITAL_API_KEY")        # tavo API key Capital.com platformoje
 CAPITAL_LOGIN = os.getenv("CAPITAL_LOGIN")              # tavo Capital.com login (el.paštas ar username)
 CAPITAL_PASSWORD = os.getenv("CAPITAL_PASSWORD")        # tavo Capital.com API slaptažodis
 
