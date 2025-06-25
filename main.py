@@ -9,6 +9,15 @@ CAPITAL_API_KEY = os.getenv("CAPITAL_API_KEY")        # tavo API key Capital.com
 CAPITAL_LOGIN = os.getenv("CAPITAL_LOGIN")              # tavo Capital.com login (el.paštas ar username)
 CAPITAL_PASSWORD = os.getenv("CAPITAL_PASSWORD")        # tavo Capital.com API slaptažodis
 
+@app.get("/test-env")
+async def test_env():
+    return {
+        "api_key_loaded": CAPITAL_API_KEY is not None,
+        "login_loaded": CAPITAL_LOGIN is not None,
+        "password_loaded": CAPITAL_PASSWORD is not None
+    }
+
+
 # Sesijos tokenai
 cst_token = None
 security_token = None
@@ -98,15 +107,4 @@ async def webhook(request: Request):
         tp = float(data["tp"])
         qty = float(data["qty"])
 
-        @app.get("/test-env")
-async def test_env():
-    return {
-        "api_key": CAPITAL_API_KEY,
-        "login": CAPITAL_LOGIN,
-        "password_present": bool(CAPITAL_PASSWORD)
-    }
-
-        order_resp = await place_order(action, symbol, qty, sl, tp)
-        return {"status": "success", "order": order_resp}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        
