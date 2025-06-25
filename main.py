@@ -4,7 +4,7 @@ import os
 
 app = FastAPI()
 
-CAPITAL_API_BASE = "https://demoapi.capital.com"
+CAPITAL_API_BASE = "https://demo-api.capital.com"
 CAPITAL_CLIENT_ID = os.getenv("CAPITAL_CLIENT_ID")
 CAPITAL_CLIENT_SECRET = os.getenv("CAPITAL_CLIENT_SECRET")
 
