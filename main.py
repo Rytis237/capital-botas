@@ -17,33 +17,37 @@ security_token = None
 
 # 📡 Sesijos pradžia
 async def start_session():
-    print("🔐 API_KEY:", CAPITAL_API_KEY)
     global cst_token, security_token
 
     if not all([CAPITAL_API_KEY, CAPITAL_LOGIN, CAPITAL_PASSWORD]):
         raise Exception("❌ Trūksta environment kintamųjų.")
 
     headers = {
-        "X-CAP-API-KEY": CAPITAL_API_KEY,
+        "X-CAP-API-KEY": str(CAPITAL_API_KEY).strip(),  # ⚠️ garantuojame, kad string
         "Content-Type": "application/json"
     }
+
     payload = {
         "identifier": CAPITAL_LOGIN,
         "password": CAPITAL_PASSWORD,
         "encryptedPassword": False
     }
 
+    print("🚀 Siunčiam sesijos POST su headeriais:", headers)
+    print("🔐 Payload:", payload)
+
     async with httpx.AsyncClient() as client:
-        response = await client.post(f"{CAPITAL_API_BASE}/session", headers=headers, json=payload)
+        resp = await client.post(f"{CAPITAL_API_BASE}/session", headers=headers, json=payload)
 
-    if response.status_code != 200:
-        raise Exception(f"❌ Prisijungimo klaida: {response.text}")
+    if resp.status_code != 200:
+        raise Exception(f"❌ Prisijungimo klaida: {resp.text}")
 
-    cst_token = response.headers.get("CST")
-    security_token = response.headers.get("X-SECURITY-TOKEN")
+    cst_token = resp.headers.get("CST")
+    security_token = resp.headers.get("X-SECURITY-TOKEN")
 
     if not cst_token or not security_token:
         raise Exception("❌ Nepavyko gauti sesijos tokenų.")
+
 
 # 📈 Pavedimo atlikimas
 async def place_order(action, symbol, qty, sl, tp):
