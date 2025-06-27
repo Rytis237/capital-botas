@@ -9,7 +9,7 @@ CAPITAL_API_KEY = os.getenv("CAPITAL_API_KEY")
 CAPITAL_LOGIN = os.getenv("CAPITAL_LOGIN")
 CAPITAL_PASSWORD = os.getenv("CAPITAL_PASSWORD")
 
-CAPITAL_API_BASE = "https://demo-api-capital.backend-capital.com"
+CAPITAL_API_BASE = "https://api-capital.backend-capital.com"
 
 # 🔐 Sesijos tokenai
 cst_token = None
