@@ -1,45 +1,50 @@
 from fastapi import FastAPI, Request, HTTPException
-import httpx
 import os
+import httpx
 
 app = FastAPI()
 
+# 🔐 Aplinkos kintamieji
 CAPITAL_API_KEY = os.getenv("CAPITAL_API_KEY")
 CAPITAL_LOGIN = os.getenv("CAPITAL_LOGIN")
 CAPITAL_PASSWORD = os.getenv("CAPITAL_PASSWORD")
 
-CAPITAL_API_BASE = "https://demo-api-capital.backend-capital.com"
+CAPITAL_API_BASE = "https://demo-api.capital.com"
 
+# 🔐 Sesijos tokenai
 cst_token = None
 security_token = None
 
+# 📡 Sesijos pradžia
 async def start_session():
     global cst_token, security_token
 
     if not all([CAPITAL_API_KEY, CAPITAL_LOGIN, CAPITAL_PASSWORD]):
-        raise Exception("❌ Environment variables not loaded.")
+        raise Exception("❌ Trūksta environment kintamųjų.")
+
+    headers = {
+        "X-CAP-API-KEY": CAPITAL_API_KEY,
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "identifier": CAPITAL_LOGIN,
+        "password": CAPITAL_PASSWORD,
+        "encryptedPassword": False
+    }
 
     async with httpx.AsyncClient() as client:
-        url = f"{CAPITAL_API_BASE}/session"
-        headers = {
-            "X-CAP-API-KEY": CAPITAL_API_KEY
-        }
-        payload = {
-            "identifier": CAPITAL_LOGIN,
-            "password": CAPITAL_PASSWORD,
-            "encryptedPassword": False
-        }
-        resp = await client.post(url, headers=headers, json=payload)
+        response = await client.post(f"{CAPITAL_API_BASE}/session", headers=headers, json=payload)
 
-        if resp.status_code != 200:
-            raise Exception(f"Session start failed: {resp.text}")
+    if response.status_code != 200:
+        raise Exception(f"❌ Prisijungimo klaida: {response.text}")
 
-        cst_token = resp.headers.get("CST")
-        security_token = resp.headers.get("X-SECURITY-TOKEN")
+    cst_token = response.headers.get("CST")
+    security_token = response.headers.get("X-SECURITY-TOKEN")
 
-        if not cst_token or not security_token:
-            raise Exception("Session tokens missing")
+    if not cst_token or not security_token:
+        raise Exception("❌ Nepavyko gauti sesijos tokenų.")
 
+# 📈 Pavedimo atlikimas
 async def place_order(action, symbol, qty, sl, tp):
     global cst_token, security_token
 
@@ -53,21 +58,21 @@ async def place_order(action, symbol, qty, sl, tp):
         "Content-Type": "application/json"
     }
 
-    capital_symbol = f"{symbol}.US"
+    symbol_code = f"{symbol}.US"
 
     async with httpx.AsyncClient() as client:
         resp = await client.get(
-            f"{CAPITAL_API_BASE}/api/v1/instruments/search?searchTerm={capital_symbol}",
+            f"{CAPITAL_API_BASE}/api/v1/instruments/search?searchTerm={symbol_code}",
             headers=headers
         )
         if resp.status_code != 200 or not resp.json().get("results"):
-            raise Exception("Instrument not found")
-        instrument_id = resp.json()["results"][0]["epic"]
+            raise Exception("❌ Instrumentas nerastas.")
 
-        direction = "BUY" if action.upper() == "BUY" else "SELL"
+        epic = resp.json()["results"][0]["epic"]
+
         order_payload = {
-            "epic": instrument_id,
-            "direction": direction,
+            "epic": epic,
+            "direction": action.upper(),
             "size": float(qty),
             "orderType": "MARKET",
             "forceOpen": True,
@@ -82,48 +87,38 @@ async def place_order(action, symbol, qty, sl, tp):
             json=order_payload
         )
 
-        if order_resp.status_code == 401:
-            # Try refresh session
-            await start_session()
-            headers["CST"] = cst_token
-            headers["X-SECURITY-TOKEN"] = security_token
-            order_resp = await client.post(
-                f"{CAPITAL_API_BASE}/api/v1/orders",
-                headers=headers,
-                json=order_payload
-            )
-
         if order_resp.status_code != 200:
-            raise Exception(f"Order failed: {order_resp.text}")
+            raise Exception(f"❌ Order nepavyko: {order_resp.text}")
 
         return order_resp.json()
 
+# 📥 Webhook endpoint
 @app.post("/webhook")
 async def webhook(request: Request):
     data = await request.json()
     try:
         action = data["action"]
         symbol = data["symbol"]
+        qty = float(data["qty"])
         sl = float(data["sl"])
         tp = float(data["tp"])
-        qty = float(data["qty"])
 
-        order_resp = await place_order(action, symbol, qty, sl, tp)
-        return {"status": "success", "order": order_resp}
+        result = await place_order(action, symbol, qty, sl, tp)
+        return {"status": "success", "result": result}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-# ✅ Testavimo endpointas
+# 🔧 Test endpoint
 @app.get("/test-env")
-async def test_env():
+def test_env():
     return {
-        "api_key_loaded": CAPITAL_API_KEY is not None,
-        "login_loaded": CAPITAL_LOGIN is not None,
-        "password_loaded": CAPITAL_PASSWORD is not None
+        "api_key": CAPITAL_API_KEY is not None,
+        "login": CAPITAL_LOGIN is not None,
+        "password": CAPITAL_PASSWORD is not None
     }
 
+# 🏁 Pagrindinis puslapis
 @app.get("/")
 def root():
-    return {"message": "Botas veikia!"}
-
+    return {"message": "Capital Botas veikia ✅"}
 
