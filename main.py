@@ -17,6 +17,7 @@ security_token = None
 
 # 📡 Sesijos pradžia
 async def start_session():
+    print("🔐 API_KEY:", CAPITAL_API_KEY)
     global cst_token, security_token
 
     if not all([CAPITAL_API_KEY, CAPITAL_LOGIN, CAPITAL_PASSWORD]):
