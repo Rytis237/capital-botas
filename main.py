@@ -1,19 +1,27 @@
+
 from fastapi import FastAPI, Request, HTTPException
 import httpx
 import os
+import json
 
 app = FastAPI()
 
+# IG API credentials from environment variables
 IG_API_KEY = os.getenv("IG_API_KEY")
 IG_USERNAME = os.getenv("IG_USERNAME")
 IG_PASSWORD = os.getenv("IG_PASSWORD")
-IG_BASE_URL = "https://demo-api.ig.com/gateway/deal"
 
+IG_API_BASE = "https://demo-api.ig.com/gateway/deal"
+
+# Session tokens
 cst_token = None
-security_token = None
+x_security_token = None
 
 async def ig_login():
-    global cst_token, security_token
+    global cst_token, x_security_token
+
+    if not IG_API_KEY or not IG_USERNAME or not IG_PASSWORD:
+        raise Exception("❌ Trūksta IG API kintamųjų (env variables)")
 
     headers = {
         "X-IG-API-KEY": IG_API_KEY,
@@ -22,79 +30,85 @@ async def ig_login():
     }
     payload = {
         "identifier": IG_USERNAME,
-        "password": IG_PASSWORD
+        "password": IG_PASSWORD,
+        "encryptedPassword": False
     }
 
     async with httpx.AsyncClient() as client:
-        response = await client.post(f"{IG_BASE_URL}/session", headers=headers, json=payload)
+        resp = await client.post(f"{IG_API_BASE}/session", headers=headers, json=payload)
 
-    if response.status_code != 200:
-        raise Exception(f"Login failed: {response.text}")
+        if resp.status_code != 200:
+            raise Exception(f"❌ Prisijungimo klaida: {resp.text}")
 
-    cst_token = response.headers.get("CST")
-    security_token = response.headers.get("X-SECURITY-TOKEN")
-    if not cst_token or not security_token:
-        raise Exception("Missing auth tokens from login response")
+        cst_token = resp.headers.get("CST")
+        x_security_token = resp.headers.get("X-SECURITY-TOKEN")
 
-async def place_order(action, epic, size, stop_distance=None, limit_distance=None):
-    global cst_token, security_token
+        if not cst_token or not x_security_token:
+            raise Exception("❌ Nepavyko gauti autentifikacijos tokenų")
 
-    if not cst_token or not security_token:
+async def place_order(action, epic, qty, sl, tp):
+    global cst_token, x_security_token
+
+    if not cst_token or not x_security_token:
         await ig_login()
 
     headers = {
         "X-IG-API-KEY": IG_API_KEY,
         "CST": cst_token,
-        "X-SECURITY-TOKEN": security_token,
+        "X-SECURITY-TOKEN": x_security_token,
         "Content-Type": "application/json",
         "Accept": "application/json"
     }
 
-    direction = "BUY" if action.upper() == "BUY" else "SELL"
+    direction = action.upper()
 
-    payload = {
+    order_payload = {
         "epic": epic,
-        "expiry": "-",
         "direction": direction,
-        "size": size,
+        "size": float(qty),
         "orderType": "MARKET",
         "guaranteedStop": False,
         "forceOpen": True,
+        "stopDistance": float(sl),
+        "limitDistance": float(tp),
         "currencyCode": "USD"
     }
 
-    if stop_distance:
-        payload["stopDistance"] = stop_distance
-    if limit_distance:
-        payload["limitDistance"] = limit_distance
-
     async with httpx.AsyncClient() as client:
-        response = await client.post(f"{IG_BASE_URL}/positions/otc", headers=headers, json=payload)
+        resp = await client.post(f"{IG_API_BASE}/positions/otc", headers=headers, json=order_payload)
 
-    if response.status_code != 200:
-        raise Exception(f"Order failed: {response.text}")
+        if resp.status_code == 401:
+            await ig_login()
+            headers["CST"] = cst_token
+            headers["X-SECURITY-TOKEN"] = x_security_token
+            resp = await client.post(f"{IG_API_BASE}/positions/otc", headers=headers, json=order_payload)
 
-    return response.json()
+        if resp.status_code != 200:
+            raise Exception(f"❌ Orderio klaida: {resp.text}")
+
+        return resp.json()
 
 @app.post("/webhook")
 async def webhook(request: Request):
-    data = await request.json()
     try:
+        raw_body = await request.body()
+        data = json.loads(raw_body)
+
         action = data["action"]
         epic = data["epic"]
-        size = float(data["qty"])
-        sl = float(data.get("sl", 0))
-        tp = float(data.get("tp", 0))
+        qty = float(data["qty"])
+        sl = float(data["sl"])
+        tp = float(data["tp"])
 
-        # IG reikalauja STOP/LIMIT kaip atstumo, ne kainos
-        stop_distance = sl if sl > 0 else None
-        limit_distance = tp if tp > 0 else None
-
-        result = await place_order(action, epic, size, stop_distance, limit_distance)
+        result = await place_order(action, epic, qty, sl, tp)
         return {"status": "success", "response": result}
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/")
+def root():
+    return {"message": "IG bot is running!"}
 
 @app.get("/test-env")
 def test_env():
@@ -103,8 +117,3 @@ def test_env():
         "IG_USERNAME_loaded": IG_USERNAME is not None,
         "IG_PASSWORD_loaded": IG_PASSWORD is not None
     }
-
-@app.get("/")
-def root():
-    return {"message": "IG bot is running!"}
-
