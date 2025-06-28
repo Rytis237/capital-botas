@@ -71,7 +71,8 @@ async def place_order(action, epic, qty, sl, tp):
         "forceOpen": True,
         "stopDistance": float(sl),
         "limitDistance": float(tp),
-        "currencyCode": "USD"
+        "currencyCode": "USD",
+        "expiry": "-"
     }
 
     async with httpx.AsyncClient() as client:
