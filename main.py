@@ -1,129 +1,110 @@
 from fastapi import FastAPI, Request, HTTPException
-import os
 import httpx
+import os
 
 app = FastAPI()
 
-# 🔐 Aplinkos kintamieji
-CAPITAL_API_KEY = os.getenv("CAPITAL_API_KEY")
-CAPITAL_LOGIN = os.getenv("CAPITAL_LOGIN")
-CAPITAL_PASSWORD = os.getenv("CAPITAL_PASSWORD")
+IG_API_KEY = os.getenv("IG_API_KEY")
+IG_USERNAME = os.getenv("IG_USERNAME")
+IG_PASSWORD = os.getenv("IG_PASSWORD")
+IG_BASE_URL = "https://demo-api.ig.com/gateway/deal"
 
-CAPITAL_API_BASE = "https://api-capital.backend-capital.com"
-
-# 🔐 Sesijos tokenai
 cst_token = None
 security_token = None
 
-# 📡 Sesijos pradžia
-async def start_session():
+async def ig_login():
     global cst_token, security_token
 
-    if not all([CAPITAL_API_KEY, CAPITAL_LOGIN, CAPITAL_PASSWORD]):
-        raise Exception("❌ Trūksta environment kintamųjų.")
-
     headers = {
-        "X-CAP-API-KEY": str(CAPITAL_API_KEY).strip(),  # ⚠️ garantuojame, kad string
-        "Content-Type": "application/json"
+        "X-IG-API-KEY": IG_API_KEY,
+        "Content-Type": "application/json",
+        "Accept": "application/json"
     }
-
     payload = {
-        "identifier": CAPITAL_LOGIN,
-        "password": CAPITAL_PASSWORD,
-        "encryptedPassword": False
+        "identifier": IG_USERNAME,
+        "password": IG_PASSWORD
     }
-
-    print("🚀 Siunčiam sesijos POST su headeriais:", headers)
-    print("🔐 Payload:", payload)
 
     async with httpx.AsyncClient() as client:
-        resp = await client.post(f"{CAPITAL_API_BASE}/session", headers=headers, json=payload)
+        response = await client.post(f"{IG_BASE_URL}/session", headers=headers, json=payload)
 
-    if resp.status_code != 200:
-        raise Exception(f"❌ Prisijungimo klaida: {resp.text}")
+    if response.status_code != 200:
+        raise Exception(f"Login failed: {response.text}")
 
-    cst_token = resp.headers.get("CST")
-    security_token = resp.headers.get("X-SECURITY-TOKEN")
-
+    cst_token = response.headers.get("CST")
+    security_token = response.headers.get("X-SECURITY-TOKEN")
     if not cst_token or not security_token:
-        raise Exception("❌ Nepavyko gauti sesijos tokenų.")
+        raise Exception("Missing auth tokens from login response")
 
-
-# 📈 Pavedimo atlikimas
-async def place_order(action, symbol, qty, sl, tp):
+async def place_order(action, epic, size, stop_distance=None, limit_distance=None):
     global cst_token, security_token
 
     if not cst_token or not security_token:
-        await start_session()
+        await ig_login()
 
     headers = {
-        "X-CAP-API-KEY": CAPITAL_API_KEY,
+        "X-IG-API-KEY": IG_API_KEY,
         "CST": cst_token,
         "X-SECURITY-TOKEN": security_token,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Accept": "application/json"
     }
 
-    symbol_code = f"{symbol}.US"
+    direction = "BUY" if action.upper() == "BUY" else "SELL"
+
+    payload = {
+        "epic": epic,
+        "expiry": "-",
+        "direction": direction,
+        "size": size,
+        "orderType": "MARKET",
+        "guaranteedStop": False,
+        "forceOpen": True,
+        "currencyCode": "USD"
+    }
+
+    if stop_distance:
+        payload["stopDistance"] = stop_distance
+    if limit_distance:
+        payload["limitDistance"] = limit_distance
 
     async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{CAPITAL_API_BASE}/api/v1/instruments/search?searchTerm={symbol_code}",
-            headers=headers
-        )
-        if resp.status_code != 200 or not resp.json().get("results"):
-            raise Exception("❌ Instrumentas nerastas.")
+        response = await client.post(f"{IG_BASE_URL}/positions/otc", headers=headers, json=payload)
 
-        epic = resp.json()["results"][0]["epic"]
+    if response.status_code != 200:
+        raise Exception(f"Order failed: {response.text}")
 
-        order_payload = {
-            "epic": epic,
-            "direction": action.upper(),
-            "size": float(qty),
-            "orderType": "MARKET",
-            "forceOpen": True,
-            "stopLevel": float(sl),
-            "limitLevel": float(tp),
-            "guaranteedStop": False
-        }
+    return response.json()
 
-        order_resp = await client.post(
-            f"{CAPITAL_API_BASE}/api/v1/orders",
-            headers=headers,
-            json=order_payload
-        )
-
-        if order_resp.status_code != 200:
-            raise Exception(f"❌ Order nepavyko: {order_resp.text}")
-
-        return order_resp.json()
-
-# 📥 Webhook endpoint
 @app.post("/webhook")
 async def webhook(request: Request):
     data = await request.json()
     try:
         action = data["action"]
-        symbol = data["symbol"]
-        qty = float(data["qty"])
-        sl = float(data["sl"])
-        tp = float(data["tp"])
+        epic = data["epic"]
+        size = float(data["qty"])
+        sl = float(data.get("sl", 0))
+        tp = float(data.get("tp", 0))
 
-        result = await place_order(action, symbol, qty, sl, tp)
-        return {"status": "success", "result": result}
+        # IG reikalauja STOP/LIMIT kaip atstumo, ne kainos
+        stop_distance = sl if sl > 0 else None
+        limit_distance = tp if tp > 0 else None
+
+        result = await place_order(action, epic, size, stop_distance, limit_distance)
+        return {"status": "success", "response": result}
+
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-# 🔧 Test endpoint
 @app.get("/test-env")
 def test_env():
     return {
-        "api_key": CAPITAL_API_KEY is not None,
-        "login": CAPITAL_LOGIN is not None,
-        "password": CAPITAL_PASSWORD is not None
+        "IG_API_KEY_loaded": IG_API_KEY is not None,
+        "IG_USERNAME_loaded": IG_USERNAME is not None,
+        "IG_PASSWORD_loaded": IG_PASSWORD is not None
     }
 
-# 🏁 Pagrindinis puslapis
 @app.get("/")
 def root():
-    return {"message": "Capital Botas veikia ✅"}
+    return {"message": "IG bot is running!"}
 
