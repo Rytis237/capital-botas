@@ -138,6 +138,20 @@ async def webhook(request: Request):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@app.get("/epic-info/{epic}")
+async def epic_info(epic: str):
+    try:
+        info = await get_epic_info(epic)
+        dealing = info.get("market", {}).get("dealingRules", {})
+        return {
+            "epic": epic,
+            "minDealSize": dealing.get("minDealSize"),
+            "dealSizeIncrement": dealing.get("dealSizeIncrement")
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 
 @app.get("/")
 def root():
@@ -151,3 +165,18 @@ def test_env():
         "IG_USERNAME_loaded": IG_USERNAME is not None,
         "IG_PASSWORD_loaded": IG_PASSWORD is not None
     }
+
+async def get_epic_info(epic: str):
+    if not cst_token or not x_security_token:
+        await ig_login()
+    headers = {
+        "X-IG-API-KEY": IG_API_KEY,
+        "CST": cst_token,
+        "X-SECURITY-TOKEN": x_security_token,
+        "Accept": "application/json"
+    }
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(f"{IG_API_BASE}/markets/{epic}", headers=headers)
+    if resp.status_code != 200:
+        raise Exception(f"Negalima gauti info apie epic: {resp.text}")
+    return resp.json()
