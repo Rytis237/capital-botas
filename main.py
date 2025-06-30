@@ -97,7 +97,7 @@ async def webhook(request: Request):
 
         action = data["action"]
         epic = data["epic"]
-        qty = float(data["qty"])
+        qty = 0.08
         sl = float(data["sl"])
         tp = float(data["tp"])
 
