@@ -133,7 +133,14 @@ async def webhook(request: Request):
         epic = await get_epic_from_symbol(symbol)
 
         result = await place_order(action, epic, qty, sl, tp)
-        return {"status": "success", "epic": epic, "response": result}
+confirmation = await get_deal_confirmation(result["dealReference"])
+return {
+    "status": "success",
+    "epic": epic,
+    "qty": qty,
+    "dealReference": result["dealReference"],
+    "confirmation": confirmation
+}
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -180,3 +187,23 @@ async def get_epic_info(epic: str):
     if resp.status_code != 200:
         raise Exception(f"Negalima gauti info apie epic: {resp.text}")
     return resp.json()
+
+async def get_deal_confirmation(deal_reference: str):
+    if not cst_token or not x_security_token:
+        await ig_login()
+
+    headers = {
+        "X-IG-API-KEY": IG_API_KEY,
+        "CST": cst_token,
+        "X-SECURITY-TOKEN": x_security_token,
+        "Accept": "application/json"
+    }
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(f"{IG_API_BASE}/confirms/{deal_reference}", headers=headers)
+
+        if resp.status_code != 200:
+            raise Exception(f"❌ Nepavyko gauti deal confirm: {resp.text}")
+
+        return resp.json()
+
