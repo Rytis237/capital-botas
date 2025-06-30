@@ -17,6 +17,7 @@ IG_API_BASE = "https://demo-api.ig.com/gateway/deal"
 cst_token = None
 x_security_token = None
 
+
 async def ig_login():
     global cst_token, x_security_token
 
@@ -45,6 +46,33 @@ async def ig_login():
 
         if not cst_token or not x_security_token:
             raise Exception("❌ Nepavyko gauti autentifikacijos tokenų")
+
+
+async def get_epic_from_symbol(symbol: str) -> str:
+    global cst_token, x_security_token
+
+    if not cst_token or not x_security_token:
+        await ig_login()
+
+    headers = {
+        "X-IG-API-KEY": IG_API_KEY,
+        "CST": cst_token,
+        "X-SECURITY-TOKEN": x_security_token,
+        "Accept": "application/json"
+    }
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(f"{IG_API_BASE}/markets?searchTerm={symbol}", headers=headers)
+        if resp.status_code != 200:
+            raise Exception(f"❌ Nepavyko gauti epic: {resp.text}")
+
+        data = resp.json()
+        results = data.get("markets", [])
+        if not results:
+            raise Exception("❌ Nerasta atitiktis epic simboliui")
+
+        return results[0]["epic"]
+
 
 async def place_order(action, epic, qty, sl, tp):
     global cst_token, x_security_token
@@ -89,6 +117,7 @@ async def place_order(action, epic, qty, sl, tp):
 
         return resp.json()
 
+
 @app.post("/webhook")
 async def webhook(request: Request):
     try:
@@ -96,20 +125,24 @@ async def webhook(request: Request):
         data = json.loads(raw_body)
 
         action = data["action"]
-        epic = data["epic"]
-        qty = 0.08
+        symbol = data["symbol"]
+        qty = 0.08  # Fiksuotas dydis
         sl = float(data["sl"])
         tp = float(data["tp"])
 
+        epic = await get_epic_from_symbol(symbol)
+
         result = await place_order(action, epic, qty, sl, tp)
-        return {"status": "success", "response": result}
+        return {"status": "success", "epic": epic, "response": result}
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
 @app.get("/")
 def root():
-    return {"message": "IG bot is running!"}
+    return {"message": "✅ IG botas veikia!"}
+
 
 @app.get("/test-env")
 def test_env():
