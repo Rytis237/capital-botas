@@ -125,25 +125,24 @@ async def webhook(request: Request):
         data = json.loads(raw_body)
 
         action = data["action"]
-        symbol = data["symbol"]
-        qty = 1  # Fiksuotas dydis
+        epic = data["epic"]
+        qty = 1.0  # arba kitas galiojantis dydis
         sl = float(data["sl"])
         tp = float(data["tp"])
 
-        epic = await get_epic_from_symbol(symbol)
-
         result = await place_order(action, epic, qty, sl, tp)
-confirmation = await get_deal_confirmation(result["dealReference"])
-return {
-    "status": "success",
-    "epic": epic,
-    "qty": qty,
-    "dealReference": result["dealReference"],
-    "confirmation": confirmation
-}
+        confirmation = await get_deal_confirmation(result["dealReference"])
+
+        return {
+            "status": "success",
+            "epic": epic,
+            "qty": qty,
+            "dealReference": result["dealReference"],
+            "confirmation": confirmation
+        }
 
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=f"❌ Klaida: {str(e)}")
 
 @app.get("/epic-info/{epic}")
 async def epic_info(epic: str):
