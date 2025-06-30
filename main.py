@@ -126,7 +126,7 @@ async def webhook(request: Request):
 
         action = data["action"]
         epic = data["epic"]
-        qty = 0.1  # fiksuotas dydis
+        qty = 1  # fiksuotas dydis
         sl = float(data["sl"])  # tiesiog SL kaina
         tp = float(data["tp"])  # tiesiog TP kaina
 
