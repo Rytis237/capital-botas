@@ -97,8 +97,8 @@ async def place_order(action, epic, qty, sl, tp):
         "orderType": "MARKET",
         "guaranteedStop": False,
         "forceOpen": True,
-        "stopDistance": float(sl),
-        "limitDistance": float(tp),
+        "stopLevel": float(sl),     # SL kaina
+        "limitLevel": float(tp),    # TP kaina
         "currencyCode": "USD",
         "expiry": "-"
     }
@@ -126,9 +126,9 @@ async def webhook(request: Request):
 
         action = data["action"]
         epic = data["epic"]
-        qty = 1.0  # arba kitas galiojantis dydis
-        sl = float(data["sl"])
-        tp = float(data["tp"])
+        qty = 0.1  # fiksuotas dydis
+        sl = float(data["sl"])  # tiesiog SL kaina
+        tp = float(data["tp"])  # tiesiog TP kaina
 
         result = await place_order(action, epic, qty, sl, tp)
         confirmation = await get_deal_confirmation(result["dealReference"])
@@ -144,6 +144,7 @@ async def webhook(request: Request):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"❌ Klaida: {str(e)}")
 
+
 @app.get("/epic-info/{epic}")
 async def epic_info(epic: str):
     try:
@@ -156,7 +157,6 @@ async def epic_info(epic: str):
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-
 
 
 @app.get("/")
@@ -172,6 +172,7 @@ def test_env():
         "IG_PASSWORD_loaded": IG_PASSWORD is not None
     }
 
+
 async def get_epic_info(epic: str):
     if not cst_token or not x_security_token:
         await ig_login()
@@ -186,6 +187,7 @@ async def get_epic_info(epic: str):
     if resp.status_code != 200:
         raise Exception(f"Negalima gauti info apie epic: {resp.text}")
     return resp.json()
+
 
 async def get_deal_confirmation(deal_reference: str):
     if not cst_token or not x_security_token:
