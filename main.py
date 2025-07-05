@@ -1,98 +1,89 @@
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request
 import httpx
 import os
 import json
 
 app = FastAPI()
 
-FXOPEN_CLIENT_ID = os.getenv("FXOPEN_CLIENT_ID")
-FXOPEN_CLIENT_SECRET = os.getenv("FXOPEN_CLIENT_SECRET")
-FXOPEN_BASE_URL = os.getenv("FXOPEN_BASE_URL", "https://ttdemo.fxopen.com:8443")
+FXOPEN_BASE_URL = os.getenv("FXOPEN_BASE_URL")
+CLIENT_ID = os.getenv("CLIENT_ID")
+CLIENT_KEY = os.getenv("CLIENT_KEY")
+CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 
-ACCESS_TOKEN = None
 
-async def get_access_token():
-    global ACCESS_TOKEN
-
-    url = f"{FXOPEN_BASE_URL}/token"
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/x-www-form-urlencoded"
+async def fxopen_auth():
+    """Gauti access token iš FXOpen API"""
+    url = f"{FXOPEN_BASE_URL}/auth/token"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "client_id": CLIENT_ID,
+        "client_key": CLIENT_KEY,
+        "client_secret": CLIENT_SECRET,
+        "grant_type": "client_credentials"
     }
-    data = {
-        "grant_type": "client_credentials",
-        "client_id": FXOPEN_CLIENT_ID,
-        "client_secret": FXOPEN_CLIENT_SECRET
-    }
-
-    async with httpx.AsyncClient() as client:
-        try:
-            resp = await client.post(url, headers=headers, data=data)
-            resp.raise_for_status()
-            token_data = resp.json()
-            ACCESS_TOKEN = token_data["access_token"]
-        except httpx.HTTPStatusError as e:
-            raise Exception(f"❌ HTTP klaida ({e.response.status_code}): {e.response.text}")
-        except httpx.RequestError as e:
-            raise Exception(f"❌ Tinklo klaida: {e}")
-        except Exception as e:
-            raise Exception(f"❌ Nenumatyta klaida: {str(e)}")
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.post(url, json=payload, headers=headers)
+        resp.raise_for_status()
+        return resp.json().get("access_token")
 
 
-async def place_order(action: str, symbol: str, sl: float, tp: float):
-    global ACCESS_TOKEN
-    if not ACCESS_TOKEN:
-        await get_access_token()
-
-    url = f"{FXOPEN_BASE_URL}/connect/trading/open_trade"
+async def place_order(token, symbol, action, qty):
+    url = f"{FXOPEN_BASE_URL}/orders"
     headers = {
-        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
     }
-
-    payload = {
-        "Symbol": symbol,
-        "Volume": 0.01,  # Fiksuotas kiekis
-        "Side": "buy" if action.upper() == "BUY" else "sell",
-        "Type": "market",
-        "StopLossPrice": sl,
-        "TakeProfitPrice": tp
+    order_payload = {
+        "symbol": symbol,
+        "side": action.upper(),
+        "quantity": qty,
+        "type": "market",
+        "time_in_force": "GTC"
     }
-
-    async with httpx.AsyncClient() as client:
-        try:
-            resp = await client.post(url, headers=headers, json=payload)
-            resp.raise_for_status()
-            return {"status": "success", "response": resp.json()}
-        except httpx.HTTPStatusError as e:
-            return {
-                "status": "error",
-                "message": f"HTTP klaida {e.response.status_code}: {e.response.text}"
-            }
-        except httpx.RequestError as e:
-            return {"status": "error", "message": f"Tinklo klaida: {str(e)}"}
-        except Exception as e:
-            return {"status": "error", "message": f"Nenumatyta klaida: {str(e)}"}
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.post(url, json=order_payload, headers=headers)
+        resp.raise_for_status()
+        return resp.json()
 
 
 @app.post("/webhook")
 async def webhook(request: Request):
     try:
-        body = await request.body()
-        data = json.loads(body)
+        data = await request.json()
 
-        action = data.get("action")
-        symbol = data.get("symbol")
-        sl = float(data.get("sl"))
-        tp = float(data.get("tp"))
+        action = data.get("action")  # "BUY" arba "SELL"
+        symbol = data.get("symbol")  # pvz. "SPY"
+        qty = 0.01  # fiksuotas kiekis
 
-        if not all([action, symbol, sl, tp]):
-            raise ValueError("Trūksta laukų: action, symbol, sl, tp")
+        if not all([action, symbol]):
+            return {
+                "status": "error",
+                "message": "Trūksta būtinų laukų: action arba symbol"
+            }
 
-        return await place_order(action, symbol, sl, tp)
+        token = await fxopen_auth()
+        order_response = await place_order(token, symbol, action, qty)
 
+        return {
+            "status": "success",
+            "order": order_response
+        }
+
+    except httpx.HTTPStatusError as e:
+        return {
+            "status": "error",
+            "message": f"HTTP klaida: {e.response.status_code} - {e.response.text}"
+        }
+    except httpx.RequestError as e:
+        return {
+            "status": "error",
+            "message": f"Tinklo klaida: {str(e)} | {repr(e)}"
+        }
     except Exception as e:
-        return {"status": "error", "message": f"❌ Klaida: {str(e)}"}
+        return {
+            "status": "error",
+            "message": f"Klaida: {str(e)} | {repr(e)}"
+        }
 
 
 @app.get("/")
@@ -103,7 +94,9 @@ def root():
 @app.get("/test-env")
 def test_env():
     return {
-        "FXOPEN_CLIENT_ID": FXOPEN_CLIENT_ID is not None,
-        "FXOPEN_CLIENT_SECRET": FXOPEN_CLIENT_SECRET is not None,
-        "FXOPEN_BASE_URL": FXOPEN_BASE_URL
+        "FXOPEN_BASE_URL_loaded": FXOPEN_BASE_URL is not None,
+        "CLIENT_ID_loaded": CLIENT_ID is not None,
+        "CLIENT_KEY_loaded": CLIENT_KEY is not None,
+        "CLIENT_SECRET_loaded": CLIENT_SECRET is not None
     }
+
