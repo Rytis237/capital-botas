@@ -14,7 +14,7 @@ API_KEY = os.getenv("FXOPEN_API_KEY")
 API_SECRET = os.getenv("FXOPEN_API_SECRET")
 ACCOUNT_ID = os.getenv("FXOPEN_ACCOUNT_ID")  # jei reikia
 
-API_BASE = "https://api.ticktrader.com/api/v2"  # Pasitikrink, ar ne kitoks endpointas
+API_BASE = "https://ttdemo.fxopen.com:8443"  # Pasitikrink, ar ne kitoks endpointas
 
 # Funkcija HMAC pasirašymui
 def sign_request(payload: str, secret: str):
@@ -50,7 +50,7 @@ async def send_request(method: str, path: str, body: dict = None):
     return resp.json()
 
 # Fiksuotas pozicijos dydis
-QTY = 1
+QTY = 0.01
 
 # Atidaryti poziciją
 async def open_position(epic: str, action: str, sl: float = None, tp: float = None):
